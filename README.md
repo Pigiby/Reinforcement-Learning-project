@@ -97,8 +97,7 @@ overwritten.
 - Everything runs on the CPU. The `device` argument of `DQNAgent` can move it to a GPU,
   but GPU kernels are not guaranteed to be bit-for-bit deterministic.
 - If you retrain, expect numbers close to the table above, not identical
-  ones: the pretrained models were trained with the original, unseeded code
-  (see [Changes from the original code](#changes-from-the-original-code)).
+  ones: the pretrained models were trained without a fixed seed.
 
 ## Project structure
 
@@ -153,29 +152,3 @@ These values come from the code that produced the pretrained models. A few
 of them differ from the ones printed in the report: the report lists batch
 size 128 and ε_min 0.01 for Taxi DQN, and ε decay 0.99997 and ε_min 0.01 for
 MountainCar.
-
-## Changes from the original code
-
-The scripts were refactored for readability and reproducibility. The
-algorithms, network architecture and hyper-parameters are unchanged, and the
-original checkpoints still load. Behavioural changes:
-
-- **Bug fixes**
-  - MountainCar training crashed: `.to()` was called on a NumPy array.
-  - The MountainCar test average was divided by 100 instead of 1000.
-  - The Q-learning loops ignored `truncated`, so an episode could run past the
-    200-step time limit.
-  - The code used `env.decode(...)` through a wrapper, which no longer works in
-    gymnasium ≥ 1.0. It now uses `env.unwrapped.decode(...)`.
-- **DQN target**: an episode that ends by time limit (truncation) is no longer
-  treated as terminal, so the agent keeps bootstrapping from `s'`. Before,
-  `terminated or truncated` was stored.
-- **Seeding**: added `--seed`. The MountainCar trainer no longer resets each
-  episode with a random seed in `0..100`, which limited training to 101
-  starting positions.
-- **Random Taxi baseline**: it samples only valid actions (action mask), which
-  matches the ≈ −180 reported.
-- **Interface**: replaced the `input("train/test")` loop with command-line
-  arguments, and made paths relative to the repository root.
-- **Removed**: `src/taxi_model/q_learning_taxi.py`, an unused duplicate of the
-  Q-learning script with α = 0.1. Use `--alpha 0.1` to get the same setting.
