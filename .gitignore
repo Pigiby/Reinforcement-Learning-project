@@ -1,0 +1,26 @@
+# Outputs of running the scripts (models, Q-tables, plots)
+runs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Old layout, no longer used: the scripts used to write models, the Q-table
+# and plots into the current working directory. Everything now goes to runs/,
+# and the files used in the report are kept in models/ and results/.
+/src/taxi_model/
+/src/mountaincar_model/
+/q_table.csv
+/foo.csv
+/src/q_table.csv
+/src/foo.csv
+/*.png
+/src/*.png

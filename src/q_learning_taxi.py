@@ -1,100 +1,111 @@
+"""Tabular Q-learning on Taxi-v3 (baseline for the DQN agent).
+
+The Q-table has one row per state (500) and one column per action (6).
+With the default ``--alpha 1.0`` the update reduces to the rule used in the
+report, Q(s, a) <- r + gamma * max_a' Q(s', a'), which is exact here because
+Taxi is deterministic.
+
+    python src/q_learning_taxi.py train     # train from scratch -> runs/
+    python src/q_learning_taxi.py test      # evaluate the pretrained Q-table
+"""
+
+import argparse
+from pathlib import Path
+
 import gymnasium as gym
-import random
-import matplotlib.pyplot as plt
 import numpy as np
-from numpy import loadtxt
+
+from common import MODELS_DIR, RUNS_DIR, plot_rewards, set_seed, summarize
+
+ENV_ID = "Taxi-v3"
+GAMMA = 0.99
+EPS_START = 1.0
+EPS_END = 0.01
+EPS_DECAY = 0.99997  # applied after every environment step
 
 
-env = gym.make("Taxi-v3")
-q_table = np.zeros([env.observation_space.n, env.action_space.n])
+def train(args):
+    set_seed(args.seed)
+    rng = np.random.default_rng(args.seed)
+    env = gym.make(ENV_ID)
+    env.action_space.seed(args.seed)
+    q_table = np.zeros((env.observation_space.n, env.action_space.n))
+    epsilon = EPS_START
+
+    rewards = []
+    for episode in range(args.episodes):
+        state, _ = env.reset(seed=args.seed if episode == 0 else None)
+        episode_reward, done = 0.0, False
+        while not done:
+            if rng.random() < epsilon:
+                action = env.action_space.sample()  # explore
+            else:
+                action = int(np.argmax(q_table[state]))  # exploit
+            epsilon = max(EPS_END, epsilon * EPS_DECAY)
+
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            target = reward + GAMMA * np.max(q_table[next_state]) * (not terminated)
+            q_table[state, action] += args.alpha * (target - q_table[state, action])
+
+            state = next_state
+            episode_reward += reward
+            done = terminated or truncated
+        rewards.append(episode_reward)
+
+        if (episode + 1) % args.log_every == 0:
+            print(
+                f"episode {episode + 1:6d}  "
+                f"mean reward (last {args.log_every}): {np.mean(rewards[-args.log_every:]):8.2f}  "
+                f"epsilon: {epsilon:.3f}"
+            )
+    env.close()
+
+    args.model.parent.mkdir(parents=True, exist_ok=True)
+    np.savetxt(args.model, q_table, delimiter=",")
+    print(f"Saved Q-table to {args.model}")
+    plot_rewards(rewards, 50, "Taxi - Q-learning training", RUNS_DIR / "taxi-qlearning-training.png")
 
 
-# Hyperparameters
-gamma = 0.99
-epsilon = 1
+def test(args):
+    set_seed(args.seed)
+    env = gym.make(ENV_ID)
+    q_table = np.loadtxt(args.model, delimiter=",")
+    print(f"Loaded Q-table from {args.model}")
 
-# For plotting metrics
-scores = []
-episodes = []
-eps = []
-points = []
-for i in range(1, 10001):
-    rand = random.seed(a=None, version=2)
-    observation, info = env.reset(seed=rand)    
-    #print(observation)
-    terminated = False
-    score = 0
-    while not terminated:
-        if random.uniform(0, 1) < epsilon:
-            action = env.action_space.sample() # Explore action space
-        else:
-            action = np.argmax(q_table[observation]) # Exploit learned values
-        epsilon = epsilon * 0.99997
-        if epsilon < 0.01:
-            epsilon = 0.01
-        next_observation, reward, terminated, truncated, info = env.step(action)        
-        old_value = q_table[observation, action]
-        next_max = np.max(q_table[next_observation])
-        
-        new_value = reward + gamma * next_max
-        q_table[observation, action] = new_value
+    rewards = []
+    for episode in range(args.episodes):
+        state, _ = env.reset(seed=args.seed if episode == 0 else None)
+        episode_reward, done = 0.0, False
+        while not done:
+            state, reward, terminated, truncated, _ = env.step(int(np.argmax(q_table[state])))
+            episode_reward += reward
+            done = terminated or truncated
+        rewards.append(episode_reward)
+    env.close()
 
-        score += reward
-
-        observation = next_observation
-    scores.append(score)
-    episodes.append(i)
-
-    if i % 50 == 0:
-        points.append(np.mean(scores[-50:]))
-        eps.append(np.mean(episodes[-50:]))
-        print("iteration ",i,"average reward last 50 episodes",np.mean(scores[-50:]))
-plt.figure(1)
-plt.plot(eps,points)
-plt.xlabel('X-episodes')
-plt.ylabel('Y-reward')
-plt.title("taxi-training-Q-learning")
-plt.savefig("taxi-training-Q-learning.png")
-print("Training finished.\n")
-# save numpy array as csv file
-from numpy import savetxt
-# define data
-# save to csv file
-savetxt('q_table.csv', q_table, delimiter=',')
+    summarize(rewards)
+    plot_rewards(rewards, 20, "Taxi - Q-learning testing", RUNS_DIR / "taxi-qlearning-testing.png")
 
 
-data = loadtxt("./q_table.csv", delimiter=',')
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("mode", choices=["train", "test"])
+    parser.add_argument("--episodes", type=int, help="default: 10000 for train, 1000 for test")
+    parser.add_argument("--alpha", type=float, default=1.0, help="learning rate of the Q-update")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--model", type=Path, help="Q-table CSV to write (train) or read (test)")
+    parser.add_argument("--log-every", type=int, default=500)
+    args = parser.parse_args()
 
-total_epochs, total_penalties = 0, 0
-episodes = 1000
-scores_test = []
-episodes_test = []
-eps_test = []
-points_test = []
-total = 0
-for _ in range(episodes):
-    rand = random.seed(a=None, version=2)
-    observation, info = env.reset(seed=rand)    
-    epochs, penalties, reward = 0, 0, 0
-    score = 0
-    terminated = False
-    
-    while not terminated:
-        action = np.argmax(data[observation])
-        observation, reward, terminated, truncated, info = env.step(action)        
-        score += reward
+    if args.mode == "train":
+        args.episodes = args.episodes or 10_000
+        args.model = args.model or RUNS_DIR / "taxi_q_table.csv"
+        train(args)
+    else:
+        args.episodes = args.episodes or 1_000
+        args.model = args.model or MODELS_DIR / "taxi_q_table.csv"
+        test(args)
 
-    scores_test.append(score)
-    episodes_test.append(_)
-    if _ % 20 == 0:
-        points_test.append(np.mean(scores_test[-20:]))
-        eps_test.append(np.mean(episodes_test[-20:]))
-    print("Iteration ",_, " score of ",score," points")
-    total += score
-plt.figure(2)
-plt.plot(eps_test,points_test)
-plt.xlabel('X-episodes_')
-plt.ylabel('Y-reward_')
-plt.title("taxi-testing-Q-learning")
-plt.savefig("taxi-testing-Q-learning.png")
-print("the average reward is ",total / 1000)
+
+if __name__ == "__main__":
+    main()
